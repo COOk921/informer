@@ -239,10 +239,10 @@ class Dataset_Custom(Dataset):
         border2 = border2s[self.set_type]
         
         if self.features=='M' or self.features=='MS':
-            cols_data = df_raw.columns[1:]
+            cols_data = df_raw.columns[1:]    
             df_data = df_raw[cols_data]
         elif self.features=='S':
-            df_data = df_raw[[self.target]]
+            df_data = df_raw[[self.target]]  
 
         if self.scale:
             train_data = df_data[border1s[0]:border2s[0]]

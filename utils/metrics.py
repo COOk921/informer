@@ -23,11 +23,18 @@ def MAPE(pred, true):
 def MSPE(pred, true):
     return np.mean(np.square((pred - true) / true))
 
+def R2(pred, true):
+    
+    return 1 - np.sum((true - pred) ** 2) / np.sum((true - true.mean()) ** 2)
+
+
 def metric(pred, true):
     mae = MAE(pred, true)
     mse = MSE(pred, true)
     rmse = RMSE(pred, true)
     mape = MAPE(pred, true)
     mspe = MSPE(pred, true)
+    r2 = R2(pred, true)
+    import pdb; pdb.set_trace()
     
-    return mae,mse,rmse,mape,mspe
+    return mae,mse,rmse,mape,mspe,r2

@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 import os
 import time
@@ -21,6 +22,11 @@ warnings.filterwarnings('ignore')
 class Exp_Informer(Exp_Basic):
     def __init__(self, args):
         super(Exp_Informer, self).__init__(args)
+        if not os.path.exists(args.logs):
+            os.makedirs(args.logs)
+            
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.writer = SummaryWriter(log_dir=os.path.join(args.logs, current_time))
     
     def _build_model(self):
         model_dict = {
@@ -69,6 +75,8 @@ class Exp_Informer(Exp_Basic):
             'ECL':Dataset_Custom,
             'Solar':Dataset_Custom,
             'custom':Dataset_Custom,
+            'DWV':Dataset_Custom
+            
         }
         Data = data_dict[self.args.data]
         timeenc = 0 if args.embed!='timeF' else 1
@@ -180,6 +188,12 @@ class Exp_Informer(Exp_Basic):
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
+
+            self.writer.add_scalar("Cost Time", time.time()-epoch_time, epoch + 1)
+            self.writer.add_scalar('Train Loss', train_loss, epoch + 1)
+            self.writer.add_scalar('Vali Loss', vali_loss, epoch + 1)
+            self.writer.add_scalar('Test Loss', test_loss, epoch + 1)
+
             early_stopping(vali_loss, self.model, path)
             if early_stopping.early_stop:
                 print("Early stopping")
@@ -218,10 +232,10 @@ class Exp_Informer(Exp_Basic):
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
-        mae, mse, rmse, mape, mspe = metric(preds, trues)
+        mae, mse, rmse, mape, mspe, r2 = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
-
-        np.save(folder_path+'metrics.npy', np.array([mae, mse, rmse, mape, mspe]))
+        
+        np.save(folder_path+'metrics.npy', np.array([mae, mse, rmse, mape, mspe, r2]))
         np.save(folder_path+'pred.npy', preds)
         np.save(folder_path+'true.npy', trues)
 
@@ -269,6 +283,8 @@ class Exp_Informer(Exp_Basic):
         elif self.args.padding==1:
             dec_inp = torch.ones([batch_y.shape[0], self.args.pred_len, batch_y.shape[-1]]).float()
         dec_inp = torch.cat([batch_y[:,:self.args.label_len,:], dec_inp], dim=1).float().to(self.device)
+
+       
         # encoder - decoder
         if self.args.use_amp:
             with torch.cuda.amp.autocast():

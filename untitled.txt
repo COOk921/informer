@@ -1,0 +1,5 @@
+python -u main_informer.py --model informer --data DWV --root_path  ./data/DWV/ --data_path DWV.csv  --target Returning.Visits
+
+
+
+python -u main_informer.py --model informer --data WTH --root_path  ./data/WTH/ --data_path WTH.csv  
