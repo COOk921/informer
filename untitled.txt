@@ -1,4 +1,4 @@
-python -u main_informer.py --model informer --data DWV --root_path  ./data/DWV/ --data_path DWV.csv  --target Returning.Visits
+python -u main_informer.py --model informer --data DWV --root_path  ./data/DWV/ --data_path DWV.csv  --target Returning.Visits --features='MS'
 
 
 

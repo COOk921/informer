@@ -4,14 +4,17 @@ from models.model import Informer, InformerStack
 
 from utils.tools import EarlyStopping, adjust_learning_rate
 from utils.metrics import metric
-
+from utils.tools import StandardScaler
 import numpy as np
-
+from datetime import datetime
+import pdb
 import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+
+from models.lstm import LSTM
 
 import os
 import time
@@ -162,6 +165,9 @@ class Exp_Informer(Exp_Basic):
                 model_optim.zero_grad()
                 pred, true = self._process_one_batch(
                     train_data, batch_x, batch_y, batch_x_mark, batch_y_mark)
+                pred = pred.squeeze(-1)
+                true = true.squeeze(-1)
+               
                 loss = criterion(pred, true)
                 train_loss.append(loss.item())
                 
@@ -235,6 +241,8 @@ class Exp_Informer(Exp_Basic):
         mae, mse, rmse, mape, mspe, r2 = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
         
+        
+
         np.save(folder_path+'metrics.npy', np.array([mae, mse, rmse, mape, mspe, r2]))
         np.save(folder_path+'pred.npy', preds)
         np.save(folder_path+'true.npy', trues)
@@ -303,3 +311,127 @@ class Exp_Informer(Exp_Basic):
         batch_y = batch_y[:,-self.args.pred_len:,f_dim:].to(self.device)
 
         return outputs, batch_y
+
+
+    def train_LSTM(self,setting):
+        train_data, train_loader = self._get_data(flag = 'train')
+        vali_data, vali_loader = self._get_data(flag = 'val')
+        test_data, test_loader = self._get_data(flag = 'test')
+
+        path = os.path.join(self.args.checkpoints, setting)
+        if not os.path.exists(path):
+            os.makedirs(path)
+
+        self.model = LSTM(
+            input_size=self.args.enc_in,
+            hidden_size=128, 
+            num_layers=5,
+            output_size=1,
+            batch_size=self.args.batch_size,
+            device=self.device
+        ).to(self.device)
+
+        model_optim = self._select_optimizer()
+        criterion =  self._select_criterion()
+        train_steps = len(train_loader)
+        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
+
+        time_now = time.time()
+        for epoch in range(self.args.train_epochs):
+            train_loss = []
+            iter_count = 0
+            self.model.train()
+            epoch_time = time.time()
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+                iter_count += 1
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
+
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
+                
+                model_optim.zero_grad()
+                pred = self.model(batch_x)
+               
+                f_dim = -1 if self.args.features == 'MS' else 0
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                batch_y = batch_y.squeeze(-1)
+
+               
+                loss = criterion(pred, batch_y)
+                train_loss.append(loss.item())
+                
+                loss.backward()
+                model_optim.step()
+
+                if (i + 1) % 50 == 0:
+                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                    speed = (time.time() - time_now) / iter_count
+                    left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    iter_count = 0
+                    time_now = time.time()
+                
+               
+
+        
+            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            train_loss = np.average(train_loss)
+            # vali_loss = self.vali(vali_data, vali_loader, criterion)
+            # test_loss = self.vali(test_data, test_loader, criterion)
+            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} ".format(
+                epoch + 1, train_steps, train_loss))
+            
+            early_stopping(train_loss, self.model, path)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
+
+        best_model_path = path+'/'+'checkpoint.pth'
+        self.model.load_state_dict(torch.load(best_model_path))
+        
+        return self.model
+        
+    def test_LSTM(self, setting):
+        test_data, test_loader = self._get_data(flag='test')
+        
+        self.model.eval()
+        
+        preds = []
+        trues = []
+
+        for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+            batch_x = batch_x.float().to(self.device)
+            batch_y = batch_y.float().to(self.device)
+
+            batch_x_mark = batch_x_mark.float().to(self.device)
+            batch_y_mark = batch_y_mark.float().to(self.device)
+
+            pred = self.model(batch_x)
+
+            f_dim = -1 if self.args.features == 'MS' else 0
+            batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+            batch_y = batch_y.squeeze(-1)
+
+            preds.append(pred.detach().cpu().numpy())
+            trues.append(batch_y.detach().cpu().numpy())
+        
+        preds = np.array(preds)
+        trues = np.array(trues)
+        print('test shape:', preds.shape, trues.shape)
+        preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
+        trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
+        print('test shape:', preds.shape, trues.shape)
+
+        # result save
+        folder_path = './results/' + setting +'/'
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+        
+        mae, mse, rmse, mape, mspe, r2 = metric(preds, trues)
+        print("mse:{}, mae:{}, rmse:{}, mape:{}, mspe:{}, r2:{}".format(mse, mae, rmse, mape, mspe, r2))
+        
+        np.save(folder_path+'metrics.npy', np.array([mae, mse, rmse, mape, mspe, r2]))
+        np.save(folder_path+'pred.npy', preds)
+        np.save(folder_path+'true.npy', trues)
+        
